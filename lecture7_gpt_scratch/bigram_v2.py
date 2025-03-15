@@ -11,6 +11,8 @@ learning_rate = 1e-2
 # run on a gpu if u hav it
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
+#no of embeding dimensions
+n_embd= 32
 # ------------
 
 torch.manual_seed(1337)
@@ -73,12 +75,26 @@ class BigramLanguageModel(nn.Module):
     def __init__(self):
         super().__init__()
         # each token directly reads off the logits for the next token from a lookup table
-        self.token_embedding_table = nn.Embedding(vocab_size,vocab_size)
+        # we embed the identity of these tokens
+        self.token_embedding_table = nn.Embedding(vocab_size,n_embd)
+        #We ebmd the positions of these tokens each pos frm block size to block_size -1 has its own embedding
+        self.position_embedding_table= nn.Embedding(block_size,n_embd)
+        # set up a layer for the embeddings
+        self.lm_head= nn.Linear(n_embd, vocab_size)
+        
 
     def forward(self, idx, targets=None):
+        B,T= idx.shape
 
         # idx and targets are both (B,T) tensor of integers
-        logits = self.token_embedding_table(idx) # (B,T,C)
+        # now as we r using vocab_size , n_embd it will give us token embedding
+        token_emb = self.token_embedding_table(idx) # (B,T,n_embd)
+        # pos embedding from 0 to T-1
+        pos_emb= self.position_embedding_table(torch.arange(T,device= device)) # (T,C)
+        # as both embedding are embedding of the inputs based on attention 
+        # x has token identities and position in which the tokens occur
+        x= token_emb+pos_emb
+        logits= self.lm_head(x) #(B,T,vocab_size)
 
         if targets is None:
             loss = None
