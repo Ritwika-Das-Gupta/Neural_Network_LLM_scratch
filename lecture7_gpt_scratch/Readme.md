@@ -13,8 +13,6 @@ The model consists of the following key components:
 ### Model Parameters
 The model has a total of approximately **10 million** trainable parameters, making it efficient for lightweight training while maintaining strong text generation capabilities.
 
-![Model Diagram](nanogpt_diagram.png) *(A conceptual illustration of the NanoGPT architecture.)*
-
 ## Features
 - **Decoder-only Transformer**: Optimized for autoregressive text generation.
 - **Character-level Language Modeling**: Trained on Tiny Shakespeare dataset.
