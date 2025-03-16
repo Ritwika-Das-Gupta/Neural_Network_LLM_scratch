@@ -60,5 +60,4 @@ Generated output will be saved in `output.txt`.
 
 ## Future Improvements
 - Save and load trained models.
-- Implement `train.py` and `generate.py` for modularity.
 - Optimize performance with mixed precision training.
