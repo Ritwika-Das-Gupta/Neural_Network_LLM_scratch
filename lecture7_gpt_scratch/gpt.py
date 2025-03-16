@@ -3,19 +3,23 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 # hyperparameters
-batch_size = 32 # how many independent sequences will we process in parallel?
-block_size = 8 # what is the maximum context length for predictions?
+batch_size = 64 # how many independent sequences will we process in parallel?
+block_size = 256 # what is the maximum context length for predictions?
 # increasing the number of iterations as learning rate is lower
 max_iters = 5000
-eval_interval = 300
+eval_interval = 500
 # as self attention can make very high lr so reducing the lr here
-learning_rate = 1e-3
+learning_rate = 3e-4
 # run on a gpu if u hav it
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
 #no of embeding dimensions
-n_embd= 32
-dropout = 0.0
+n_embd= 384
+# no of heads
+n_head = 6
+# how many layers of blocks we are implementing
+n_layer = 6
+dropout = 0.2
 # ------------
 
 torch.manual_seed(1337)
@@ -85,7 +89,7 @@ class Head(nn.Module):
         # as trill is not a parameter in pytorch so we use register_buffer to make it
         # this is the lower tringualar matrix
         self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
-
+        # dropout shown in copy
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -96,6 +100,7 @@ class Head(nn.Module):
         wei = q @ k.transpose(-2,-1) * C**-0.5 # (B, T, C) @ (B, C, T) -> (B, T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T)
         wei = F.softmax(wei, dim=-1) # (B, T, T)
+        # dropout shown in copy
         wei = self.dropout(wei)
         # perform the weighted aggregation of the values
         v = self.value(x) # (B,T,C)
@@ -110,18 +115,75 @@ class MultiHeadAttention(nn.Module):
         super().__init__()
         # we crate multiple head in a list
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+        # to project it for optimizaton and come back to residual path
         self.proj = nn.Linear(n_embd, n_embd)
+        # dropout shown in copy
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         # run these multiple heads in parallel into a list and concatinate it to the output
         # concatinating over the chanel dimension
         out = torch.cat([h(x) for h in self.heads], dim=-1)
+        # linear transformation of outcome of above layer
+        # dropout shown in copy
         out = self.dropout(self.proj(out))
         return out
 
-# super simple bigram model
-class BigramLanguageModel(nn.Module):
+class FeedFoward(nn.Module):
+    """ a simple linear layer followed by a non-linearity """
+
+    def __init__(self, n_embd):
+        super().__init__()
+        # in the multi head attention helped teh tokens to interact with each other
+        # but didnt really have time to think aroun themselves so we add a feed forward
+        # contins linear layer n relu activation
+        # feed forwed is on per token level all tokens do it independently
+        # attention is the communication ad once they have gathered the data 
+        # they think over the data individually
+        self.net = nn.Sequential(
+            nn.Linear(n_embd, 4 * n_embd),
+            nn.ReLU(),
+            # projection layer going bck to residual pathway for optimization
+            # in paper we see dimension of input n output 512 and so inner layer has dimension of 4*512
+            # so we multiply by 4
+            nn.Linear(4 * n_embd, n_embd),
+            # dropout shown in copy
+            nn.Dropout(dropout),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+# this block actually helps in running the attention and feed forward several times 
+# by calling it several time in the model function
+class Block(nn.Module):
+    """ Transformer block: communication followed by computation """
+
+    def __init__(self, n_embd, n_head):
+        # n_embd: embedding dimension, n_head: the number of heads we'd like
+        super().__init__()
+        head_size = n_embd // n_head
+        self.sa = MultiHeadAttention(n_head, head_size)
+        self.ffwd = FeedFoward(n_embd)
+        #adding the layernorm here for optimization
+        # size of layernorm is 32 ie while normalization applying formula
+        # mean and variance is raken over 32 numbers
+        # both batch and time act as batch dimensions
+        # normalizes the features and makes it unit gausian at initialization
+        self.ln1 = nn.LayerNorm(n_embd)
+        self.ln2 = nn.LayerNorm(n_embd)
+
+    def forward(self, x):
+        # we did this addition opperation for optimization as explained in copy
+        # fork off from residual path do communication n come back
+        # layer norm is applied befor its goes attention and feed forward
+        x = x + self.sa(self.ln1(x))
+        # fork off from residual path do computation n come back
+        x = x + self.ffwd(self.ln2(x))
+        return x
+
+# super simple GPT model
+class GPTLanguageModel(nn.Module):
 
     def __init__(self):
         super().__init__()
@@ -135,7 +197,12 @@ class BigramLanguageModel(nn.Module):
         # we tried using self attention it reduced  the loss but not too much so now we use multi head attention
         # from each communication chanel we get vectors and we hav 4 of chanels
         # that gives us 4* 8= 32 vectors
-        self.sa_heads= MultiHeadAttention(4, int(n_embd/4)) #i.e 4 heas of 8 - dimensional self-attention
+        #self.sa_heads= MultiHeadAttention(4, int(n_embd/4)) #i.e 4 heas of 8 - dimensional self-attention
+        # adding feed forward
+        # self.ffwd= FeedFoward(n_embd)
+        #calling the block which runs  attention and feedworward several times
+        self.blocks = nn.Sequential(*[Block(n_embd, n_head=n_head) for _ in range(n_layer)])
+        self.ln_f = nn.LayerNorm(n_embd) # final layer norm
         # set up a layer for the embeddings
         self.lm_head= nn.Linear(n_embd, vocab_size)
         
@@ -156,7 +223,12 @@ class BigramLanguageModel(nn.Module):
         #based on tranformer architeture
         #x=self.sa_head(x)
         # we use multihead elf attention
-        x=self.sa_heads(x)
+        # x=self.sa_heads(x)
+        #calling the feed forward network here
+        #x= self.ffwd(x) # (B,T,C)
+        x= self.blocks(x)  # (B,T,C)
+        # applying layernorm
+        x = self.ln_f(x) # (B,T,C)
         logits= self.lm_head(x) #(B,T,vocab_size)
 
         if targets is None:
@@ -188,9 +260,12 @@ class BigramLanguageModel(nn.Module):
                 # append sampled index to the running sequence
                 idx = torch.cat((idx, idx_next), dim=1) # (B, T+1)
             return idx
-model = BigramLanguageModel()
+model = GPTLanguageModel()
 # when we create the model e move its parameters to device
 m = model.to(device)
+
+# print the number of parameters in the model i.e 10 Million
+print(sum(p.numel() for p in m.parameters())/1e6, 'M parameters')
 
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
@@ -216,4 +291,14 @@ for iter in range(max_iters):
 # generate from the model
 # also the context to generate shd be in the device cuda
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
-print(decode(m.generate(context, max_new_tokens=500)[0].tolist()))
+# print(decode(m.generate(context, max_new_tokens=2000)[0].tolist()))
+
+
+# writing the generation in txt file for better readability
+output = decode(m.generate(context, max_new_tokens=2000)[0].tolist())
+
+# Write to a text file
+with open("output.txt", "w", encoding="utf-8") as f:
+    f.write(output)
+
+print("Content saved to output.txt")
