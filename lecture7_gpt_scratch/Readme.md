@@ -1,6 +1,6 @@
 # NanoGPT
 
-NanoGPT is a lightweight, decoder-only GPT-style transformer model implemented in PyTorch for character-level language modeling using the Tiny Shakespeare dataset. It features multi-head self-attention, feed-forward layers, layer normalization, and positional embeddings to generate coherent text based on learned patterns.
+NanoGPT is a lightweight, decoder-only GPT-style transformer model of 10 million parameters implemented in PyTorch for character-level language modeling using the Tiny Shakespeare dataset of 1 million tokens. It features multi-head self-attention, feed-forward layers, layer normalization, and positional embeddings to generate coherent text based on learned patterns.
 
 ## Model Architecture
 The model consists of the following key components:
