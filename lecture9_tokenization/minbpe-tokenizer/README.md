@@ -136,7 +136,7 @@ For those trying to study BPE, here is the advised progression exercise for how 
 
 ## lecture
 
-I built the code in this repository in this [YouTube video](https://www.youtube.com/watch?v=zduSFxRajkE). You can also find this lecture in text form in [lecture.md](lecture.md).
+You can also find this lecture in text form in [lecture.md](lecture.md).
 
 ## todos
 
@@ -145,6 +145,3 @@ I built the code in this repository in this [YouTube video](https://www.youtube.
 - rename GPT4Tokenizer to GPTTokenizer and support GPT-2/GPT-3/GPT-3.5 as well?
 - write a LlamaTokenizer similar to GPT4Tokenizer (i.e. attempt sentencepiece equivalent)
 
-## License
-
-MIT
